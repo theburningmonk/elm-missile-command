@@ -1,4 +1,4 @@
-elm-missile-command
+Missile Command
 ===================
 
 Missile command implemented in Elm
