@@ -7,22 +7,24 @@ import Window
 type Pos = { x:Float, y:Float }
 type Ms  = Float -- milliseconds
 
-windowW      = 300
-windowH      = 600
 groundH      = 30   -- height of the ground
-commandH     = 20   -- height of the command
-missileStart = { x=0, y=-240 } -- coordinate from where friendly missiles are fired
+commandH     = 40   -- height of the command
+missileW     = 10   -- width of a missile object
 speed        = 50   -- speed of missiles per second in a straight line
 explosionSpd = 30   -- speed of the explosion per second
 blastRadius  = 50   -- max radius of an explosion
 
 type Velocity = { vx:Float, vy:Float }
 type Radius   = Float
-data Status   = Flying Pos Pos Velocity -- the starting, end positions and velocity of flight
-              | Exploding Radius
+data MissileStatus = Flying Pos Pos Velocity -- the starting, end positions and velocity of flight
+                   | Exploding Radius
+data MissileKind   = Friendly | Enemy
 
-type Missile   = { x:Float, y:Float, status:Status }
-type GameState = { friendlyMissiles:[Missile], enemyMissiles:[Missile], score:Int, health:Int }
+type Missile   = { x:Float, y:Float, kind:MissileKind, status:MissileStatus }
+type GameState = { friendlyMissiles:[Missile]
+                 , enemyMissiles:[Missile]
+                 , score:Int
+                 , health:Int }
 
 data Input = Time Ms                  -- time ticker
            | UserAction Pos           -- user action on the canvas
@@ -55,15 +57,20 @@ calcVelocity start end =
 -- check if missile 1 is in the blast radius of missile 2
 hitTest : Missile -> Missile -> Bool
 hitTest missile1 missile2 =
-  case (missile1.status, missile2.status) of
-    (Flying _ _ _, Exploding radius) ->
-      let (blastX, blastY) = (missile2.x, missile2.y)
-          (minX, maxX, minY, maxY) = (blastX-radius, blastX+radius, blastY-radius, blastY+radius)
-      in minX <= missile1.x 
-         && missile1.x <= maxX 
-         && minY <= missile1.y 
-         && missile1.y <= maxY
-    (_, _) -> False    
+  let isCollission x y centreX centreY radius =
+    let (minX, maxX, minY, maxY) = (centreX-radius, centreX+radius, centreY-radius, centreY+radius)
+    in minX <= x
+       && x <= maxX
+       && minY <= y 
+       && y <= maxY
+  in case (missile1.status, missile2.status) of
+      -- when caught in another missile's blast then it's a 'hit'
+      (Flying _ _ _, Exploding radius) -> isCollission missile1.x missile1.y missile2.x missile2.y radius        
+      -- when different kinds of missiles collide they 'hit'
+      (Flying _ _ _, Flying _ _ _) ->
+        missile1.kind /= missile2.kind 
+        && isCollission missile1.x missile1.y missile2.x missile2.y (missileW/2)
+      (_, _) -> False
 
 stepMissile : Float -> GameState -> Missile -> Maybe Missile
 stepMissile delta { friendlyMissiles, enemyMissiles } missile =
@@ -85,19 +92,20 @@ stepMissile delta { friendlyMissiles, enemyMissiles } missile =
          then Nothing
          else Just { missile | status<-Exploding newRadius }
          
-newMissile : Pos -> Pos -> Missile
-newMissile start end =
+newMissile : Pos -> Pos -> MissileKind -> Missile
+newMissile start end kind =
   let velocity = calcVelocity start end
-  in Missile start.x start.y (Flying start end velocity)
+  in { x=start.x, y=start.y, kind=kind, status=Flying start end velocity }
 
-stepGame : Input -> GameState -> GameState
-stepGame input gameState =   
+stepGame : (Input, (Int, Int)) -> GameState -> GameState
+stepGame (input, (windowW, windowH)) gameState =   
   case input of
     EnemyLaunch lst -> 
-      let missiles = map (\(start, end) -> newMissile start end) lst
+      let missiles = map (\(start, end) -> newMissile start end Enemy) lst
       in { gameState | enemyMissiles <- missiles++gameState.enemyMissiles }
     UserAction end -> 
-      { gameState | friendlyMissiles <- newMissile missileStart end::gameState.friendlyMissiles }
+      let commandTop = { x=0, y=toFloat -windowH/2 + groundH + commandH - 10 }
+      in { gameState | friendlyMissiles <- newMissile commandTop end Friendly::gameState.friendlyMissiles }
     Time delta -> 
       let enemyMissiles    = choose (stepMissile delta gameState) gameState.enemyMissiles
           friendlyMissiles = choose (stepMissile delta gameState) gameState.friendlyMissiles
@@ -107,7 +115,7 @@ stepGame input gameState =
 drawMissile : Missile -> Maybe Form
 drawMissile { x, y, status } = 
   case status of
-    Flying _ _ _ -> ngon 4 5 |> filled (rgb 255 0 0) |> move (x, y) |> Just
+    Flying _ _ _ -> ngon 4 (missileW/2) |> filled (rgb 255 0 0) |> move (x, y) |> Just
     _ -> Nothing
   
 drawTrail : Missile -> Maybe Form
@@ -131,26 +139,27 @@ drawExplosions { x, y, status } =
       |> Just
     _ -> Nothing
 
-display : GameState -> Element
-display gameState =
-  let (w, h) = (toFloat windowW, toFloat windowH)
+display : (Int, Int) -> GameState -> Element
+display (windowW, windowH) gameState =
+  let (w, h)  = (toFloat windowW, toFloat windowH)
+      groundY = -h/2 + groundH/2
+      centreY = -h/2 + commandH
   in collage windowW windowH
      <| concat [
-          [ rect w h |> filled (rgb 20 0 20)
+          [ rect w h |> filled (rgb 0 0 0)
           , rect w groundH  |> filled (rgb 255 255 40)
-                            |> move (0, -285)
-          , ngon 3 commandH |> filled (rgb 255 255 40)
-                            |> rotate (degrees 90)
-                            |> move (0, -260) ],
-                            
-          choose drawExplosions gameState.friendlyMissiles,
-          choose drawExplosions gameState.enemyMissiles,
-          
-          choose drawTrail gameState.friendlyMissiles,
-          choose drawTrail gameState.enemyMissiles,
-          
-          choose drawMissile gameState.friendlyMissiles,
-          choose drawMissile gameState.enemyMissiles
+                            |> move (0, groundY)
+          , ngon 3 (commandH/2) 
+            |> filled (rgb 255 255 40)
+            |> rotate (degrees 90)
+            |> move (0, centreY) ]
+            
+          , choose drawExplosions gameState.friendlyMissiles
+          , choose drawExplosions gameState.enemyMissiles          
+          , choose drawTrail gameState.friendlyMissiles
+          , choose drawTrail gameState.enemyMissiles
+          , choose drawMissile gameState.friendlyMissiles
+          , choose drawMissile gameState.enemyMissiles
         ]
 
 userInput : Signal Input
@@ -186,6 +195,6 @@ input : Signal Input
 input = merge timer userInput |> merge enemyLaunch
 
 gameState : Signal GameState
-gameState = foldp stepGame defaultGame input
+gameState = foldp stepGame defaultGame ((,)<~input~Window.dimensions)
 
-main = display <~ gameState
+main = display<~Window.dimensions~gameState
