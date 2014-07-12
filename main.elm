@@ -113,19 +113,23 @@ stepGame (input, (windowW, windowH)) gameState =
                      , friendlyMissiles <- friendlyMissiles }
 
 drawMissile : Missile -> Maybe Form
-drawMissile { x, y, status } = 
+drawMissile { x, y, kind, status } = 
   case status of
-    Flying _ _ _ -> ngon 4 (missileW/2) |> filled (rgb 255 0 0) |> move (x, y) |> Just
+    Flying _ _ _ ->
+      let color = if kind==Enemy then red else blue
+      in ngon 4 (missileW/2) |> filled color |> move (x, y) |> Just
     _ -> Nothing
   
 drawTrail : Missile -> Maybe Form
-drawTrail { x, y, status } = 
+drawTrail { x, y, kind, status } = 
   case status of
     Flying start _ _ ->
-      path [ (x, y), (start.x, start.y) ] 
-      |> traced (solid white)
-      |> alpha 0.2
-      |> Just
+      let (colour, alphaVal, lineW) = if kind==Enemy then (red, 0.5, 5) else (blue, 0.2, 1)
+          lineStyle = solid colour
+      in path [ (x, y), (start.x, start.y) ] 
+         |> traced ({ lineStyle | width<-lineW })
+         |> alpha alphaVal
+         |> Just
     _ -> Nothing
     
 drawExplosions : Missile -> Maybe Form
