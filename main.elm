@@ -181,15 +181,22 @@ pairWise lst =
       a::b::tl -> loop tl ((a, b)::acc)
       [] -> acc
   in loop lst []
+  
+getEnemyLaunches : (Int, Int) -> [Float] -> Input
+getEnemyLaunches (windowW, windowH) lst =
+  let (w, h) = (toFloat windowW, toFloat windowH)
+      getX x = w*x - w/2
+      startY = h/2
+  in pairWise lst
+     |> map (\(start, end) -> ({ x=getX start, y=startY }, { x=getX end, y=30 - h/2 }))
+     |> EnemyLaunch
             
 enemyLaunch : Signal Input
 enemyLaunch =
   Random.range 0 5 (every <| 2*second) -- how many missiles to launch
   |> lift ((*) 2)                 -- every missile needs a pair of coordinates
   |> Random.floatList             -- turn each signal into n floats [0..1]
-  |> lift (\lst -> pairWise lst
-                   |> map (\(start, end) -> ({ x=600*start-300, y=300 }, { x=600*end-300, y=-270 }))
-                   |> EnemyLaunch)
+  |> lift2 getEnemyLaunches Window.dimensions
 
 delta = fps 60
 timer : Signal Input
