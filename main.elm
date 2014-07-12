@@ -26,9 +26,9 @@ type GameState = { friendlyMissiles:[Missile]
                  , score:Int
                  , health:Int }
 
-data Input = Time Ms                  -- time ticker
-           | UserAction Pos           -- user action on the canvas
-           | EnemyLaunch [(Pos, Pos)] -- enemy missile launches
+data Input = Time Ms                      -- time ticker
+           | UserAction Pos               -- user action on the canvas
+           | EnemyLaunch [(Float, Float)] -- enemy missile launches
 
 defaultGame : GameState
 defaultGame = { friendlyMissiles=[], enemyMissiles=[], score=0, health=100 }
@@ -54,7 +54,6 @@ calcVelocity start end =
       angle = atan2 distV distH
   in { vx=speed*cos angle, vy=speed*sin angle }
   
--- check if missile 1 is in the blast radius of missile 2
 hitTest : Missile -> Missile -> Bool
 hitTest missile1 missile2 =
   let isCollission x y centreX centreY radius =
@@ -97,11 +96,27 @@ newMissile start end kind =
   let velocity = calcVelocity start end
   in { x=start.x, y=start.y, kind=kind, status=Flying start end velocity }
 
+pairWise : [a] -> [(a, a)]
+pairWise lst = 
+  let loop lst acc = 
+    case lst of
+      a::b::tl -> loop tl ((a, b)::acc)
+      [] -> acc
+  in loop lst []
+  
+getEnemyMissile : (Int, Int) -> (Float, Float) -> Missile
+getEnemyMissile (windowW, windowH) (start, end) =
+  let (w, h) = (toFloat windowW, toFloat windowH)
+      getX x = w*x - w/2
+      startPos = { x=getX start, y=h/2 }
+      endPos   = { x=getX end, y=groundH - h/2 }
+  in newMissile startPos endPos Enemy
+
 stepGame : (Input, (Int, Int)) -> GameState -> GameState
 stepGame (input, (windowW, windowH)) gameState =   
   case input of
     EnemyLaunch lst -> 
-      let missiles = map (\(start, end) -> newMissile start end Enemy) lst
+      let missiles = map (getEnemyMissile (windowW, windowH)) lst
       in { gameState | enemyMissiles <- missiles++gameState.enemyMissiles }
     UserAction end -> 
       let commandTop = { x=0, y=toFloat -windowH/2 + groundH + commandH - 10 }
@@ -172,31 +187,14 @@ userInput =
   let convert (w, h) (x, y) = (toFloat x - toFloat w/2, toFloat h/2 - toFloat y)
   in convert<~Window.dimensions~Mouse.position
      |> sampleOn Mouse.clicks
-     |> lift (\(x, y) -> UserAction { x=x, y=y })
-            
-pairWise : [a] -> [(a, a)]
-pairWise lst = 
-  let loop lst acc = 
-    case lst of
-      a::b::tl -> loop tl ((a, b)::acc)
-      [] -> acc
-  in loop lst []
-  
-getEnemyLaunches : (Int, Int) -> [Float] -> Input
-getEnemyLaunches (windowW, windowH) lst =
-  let (w, h) = (toFloat windowW, toFloat windowH)
-      getX x = w*x - w/2
-      startY = h/2
-  in pairWise lst
-     |> map (\(start, end) -> ({ x=getX start, y=startY }, { x=getX end, y=30 - h/2 }))
-     |> EnemyLaunch
+     |> lift (\(x, y) -> UserAction { x=x, y=y })              
             
 enemyLaunch : Signal Input
-enemyLaunch =
-  Random.range 0 5 (every <| 2*second) -- how many missiles to launch
-  |> lift ((*) 2)                 -- every missile needs a pair of coordinates
-  |> Random.floatList             -- turn each signal into n floats [0..1]
-  |> lift2 getEnemyLaunches Window.dimensions
+enemyLaunch = Random.range 0 5 (every <| 2*second) 
+              |> lift ((*) 2)     -- every missile needs a pair of coordinates
+              |> Random.floatList -- turn each signal into n floats [0..1]
+              |> lift pairWise
+              |> lift EnemyLaunch
 
 delta = fps 60
 timer : Signal Input
