@@ -131,14 +131,17 @@ stepGame (input, (windowW, windowH)) gameState =
     (Started, Time delta) -> 
       let (enemyMissiles, explodeReasons) = unzip <| map (stepMissile delta gameState) gameState.enemyMissiles
           (friendlyMissiles, _)           = unzip <| map (stepMissile delta gameState) gameState.friendlyMissiles
-          -- deduct 1 HP for every enemy that managed to pass our defense
-          enemyWins = filter ((==) (Just ReachedTarget)) explodeReasons |> length
-          
-          newHp     = gameState.hp-enemyWins  |> max 0
-          newStatus = if newHp == 0 then Ended else Started
+          -- deduct 1 HP for every enemy missile that managed to pass our defense
+          enemyWins  = filter ((==) (Just ReachedTarget)) explodeReasons |> length
+          -- award 1 score for every enemy missile that were blasted out of the sky!
+          playerWins = filter ((==) (Just CaughtInBlast)) explodeReasons |> length
+          newHp      = gameState.hp-enemyWins |> max 0
+          newScore   = gameState.score+playerWins
+          newStatus  = if newHp == 0 then Ended else Started
       in { gameState | enemyMissiles<-filter (((/=) Exploded) . .status) enemyMissiles
                      , friendlyMissiles<-filter (((/=) Exploded) . .status) friendlyMissiles
                      , hp<-newHp
+                     , score<-newScore
                      , status<-newStatus}
     (_, _) -> gameState
 
