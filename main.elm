@@ -19,22 +19,24 @@ type Velocity = { vx:Float, vy:Float }
 type Radius   = Float
 data GameStatus    = NotStarted | Started | Ended
 data MissileStatus = Flying Pos Pos Velocity -- the starting, end positions and velocity of flight
-                   | Exploding Radius
+                   | Exploding Radius        -- the current radius of the blast
+                   | Exploded
 data MissileKind   = Friendly | Enemy
+data ExplodeReason = ReachedTarget | CaughtInBlast | Collision
 
-type Missile   = { x:Float, y:Float, kind:MissileKind, status:MissileStatus }
-type GameState = { friendlyMissiles:[Missile]
-                 , enemyMissiles:[Missile]
-                 , score:Int
-                 , health:Int
-                 , status:GameStatus }
+type Missile       = { x:Float, y:Float, kind:MissileKind, status:MissileStatus }
+type GameState     = { friendlyMissiles:[Missile]
+                     , enemyMissiles:[Missile]
+                     , score:Int
+                     , hp:Int
+                     , status:GameStatus }
 
 data Input = Time Ms                      -- time ticker
            | UserAction Pos               -- user action on the canvas
            | EnemyLaunch [(Float, Float)] -- enemy missile launches
 
 defaultGame : GameState
-defaultGame = { friendlyMissiles=[], enemyMissiles=[], score=0, health=100, status=NotStarted }
+defaultGame = { friendlyMissiles=[], enemyMissiles=[], score=0, hp=10, status=NotStarted }
 
 filterJust : Maybe a -> Bool
 filterJust x =
@@ -73,26 +75,6 @@ hitTest missile1 missile2 =
         missile1.kind /= missile2.kind 
         && isCollission missile1.x missile1.y missile2.x missile2.y (missileW/2)
       (_, _) -> False
-
-stepMissile : Float -> GameState -> Missile -> Maybe Missile
-stepMissile delta { friendlyMissiles, enemyMissiles } missile =
-  case missile.status of
-    -- for a flying missile, move its position
-    Flying _ end { vx, vy } -> 
-      let newX    = missile.x + vx*delta
-          newY    = missile.y + vy*delta
-          inBlastRadius = any (hitTest missile) <| friendlyMissiles++enemyMissiles
-          explode = if vy > 0 then newY > end.y else newY < end.y
-      in if explode || inBlastRadius
-         then Just { missile | x<-newX, y<-newY, status<-Exploding 0 }
-         else Just { missile | x<-newX, y<-newY }
-    -- for an exploding missile, expand the radius of the explosion
-    Exploding radius -> 
-      let newRadius = radius + explosionSpd*delta
-          disappear = newRadius > blastRadius
-      in if disappear 
-         then Nothing
-         else Just { missile | status<-Exploding newRadius }
          
 newMissile : Pos -> Pos -> MissileKind -> Missile
 newMissile start end kind =
@@ -114,22 +96,50 @@ getEnemyMissile (windowW, windowH) (start, end) =
       startPos = { x=getX start, y=h/2 }
       endPos   = { x=getX end, y=groundH - h/2 }
   in newMissile startPos endPos Enemy
+  
+stepMissile : Float -> GameState -> Missile -> (Missile, Maybe ExplodeReason)
+stepMissile delta { friendlyMissiles, enemyMissiles } missile =
+  case missile.status of
+    -- for a flying missile, move its position
+    Flying _ end { vx, vy } -> 
+      let newX    = missile.x + vx*delta
+          newY    = missile.y + vy*delta
+          inBlastRadius = any (hitTest missile) <| friendlyMissiles++enemyMissiles
+          reachedEnd    = if vy > 0 then newY > end.y else newY < end.y
+      in if reachedEnd || inBlastRadius
+         then ({ missile | x<-newX, y<-newY, status<-Exploding 0 }
+               , Just <| if reachedEnd then ReachedTarget else CaughtInBlast )
+         else ({ missile | x<-newX, y<-newY }, Nothing)
+    -- for an exploding missile, expand the radius of the explosion
+    Exploding radius -> 
+      let newRadius = radius + explosionSpd*delta
+          disappear = newRadius > blastRadius
+      in if disappear 
+         then ({ missile | status<-Exploded }, Nothing)
+         else ({ missile | status<-Exploding newRadius }, Nothing)
 
 stepGame : (Input, (Int, Int)) -> GameState -> GameState
 stepGame (input, (windowW, windowH)) gameState =
   case (gameState.status, input) of
     (Started, EnemyLaunch lst) -> 
       let missiles = map (getEnemyMissile (windowW, windowH)) lst
-      in { gameState | enemyMissiles <- missiles++gameState.enemyMissiles }
-    (NotStarted, UserAction _) -> { gameState | status <- Started }
+      in { gameState | enemyMissiles<-missiles++gameState.enemyMissiles }
+    (NotStarted, UserAction _) -> { gameState | status<-Started }
     (Started, UserAction end) -> 
       let commandTop = { x=0, y=toFloat -windowH/2 + groundH + commandH - 10 }
-      in { gameState | friendlyMissiles <- newMissile commandTop end Friendly::gameState.friendlyMissiles }
+      in { gameState | friendlyMissiles<-newMissile commandTop end Friendly::gameState.friendlyMissiles }
     (Started, Time delta) -> 
-      let enemyMissiles    = choose (stepMissile delta gameState) gameState.enemyMissiles
-          friendlyMissiles = choose (stepMissile delta gameState) gameState.friendlyMissiles
-      in { gameState | enemyMissiles    <- enemyMissiles
-                     , friendlyMissiles <- friendlyMissiles }
+      let (enemyMissiles, explodeReasons) = unzip <| map (stepMissile delta gameState) gameState.enemyMissiles
+          (friendlyMissiles, _)           = unzip <| map (stepMissile delta gameState) gameState.friendlyMissiles
+          -- deduct 1 HP for every enemy that managed to pass our defense
+          enemyWins = filter ((==) (Just ReachedTarget)) explodeReasons |> length
+          
+          newHp     = gameState.hp-enemyWins  |> max 0
+          newStatus = if newHp == 0 then Ended else Started
+      in { gameState | enemyMissiles<-filter (((/=) Exploded) . .status) enemyMissiles
+                     , friendlyMissiles<-filter (((/=) Exploded) . .status) friendlyMissiles
+                     , hp<-newHp
+                     , status<-newStatus}
     (_, _) -> gameState
 
 drawMissile : Missile -> Maybe Form
@@ -174,29 +184,36 @@ drawBackground (windowW, windowH) =
           , ngon 3 (commandH/2) 
             |> filled (rgb 255 255 40)
             |> rotate (degrees 90)
-            |> move (0, centreY) ]
+            |> move (0, centreY)]
+
+drawGameInfo : (Int, Int) -> GameState -> Element
+drawGameInfo (windowW, windowH) { hp, score }  =
+  let (w, h) = (toFloat windowW, toFloat windowH)
+  in collage windowW windowH
+     <| [ txt (move (-w/3, h/2-10)) ("Score "++show score)
+          , txt (move (w/3, h/2-10)) ("HP "++show hp)]
             
 drawGame : (Int, Int) -> GameState -> Element
-drawGame (windowW, windowH) gameState =
-  let displayTxt msg =
-    let txt = msg |> toText |> Text.color white |> Text.monospace |> leftAligned
-    in collage windowW windowH [ txt |> toForm ]
-  in case gameState.status of
-    NotStarted -> displayTxt "CLICK anywhere to START."
-    Started    -> 
-      collage windowW windowH
-      <| concat [          
-          choose drawExplosions gameState.friendlyMissiles
-          , choose drawExplosions gameState.enemyMissiles
-          , choose drawTrail gameState.friendlyMissiles
-          , choose drawTrail gameState.enemyMissiles
-          , choose drawMissile gameState.friendlyMissiles
-          , choose drawMissile gameState.enemyMissiles
-        ]
-    Ended      -> displayTxt "GAME OVER!"
+drawGame (windowW, windowH) gameState =  
+  let content = 
+    case gameState.status of
+      NotStarted -> [ txt id "CLICK anywhere to START." ]
+      Started    -> concat [ choose drawExplosions gameState.friendlyMissiles
+                           , choose drawExplosions gameState.enemyMissiles
+                           , choose drawTrail gameState.friendlyMissiles
+                           , choose drawTrail gameState.enemyMissiles
+                           , choose drawMissile gameState.friendlyMissiles
+                           , choose drawMissile gameState.enemyMissiles ]
+      Ended      -> [ txt id "GAME OVER!" ]
+  in collage windowW windowH content
 
 display : (Int, Int) -> GameState -> Element
-display dim gameState = layers [ drawBackground dim, drawGame dim gameState ]
+display dim gameState = layers [ drawBackground dim
+                               , drawGame dim gameState
+                               , drawGameInfo dim gameState]
+
+txt : (Form -> Form) -> String -> Form
+txt f msg = msg |> toText |> Text.color white |> Text.monospace |> leftAligned |> toForm |> f
 
 userInput : Signal Input
 userInput = 
