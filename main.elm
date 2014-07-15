@@ -3,6 +3,7 @@ module MissileCommand where
 import Mouse
 import Random
 import Text
+import Touch
 import Window
 
 type Pos = { x:Float, y:Float }
@@ -125,7 +126,8 @@ stepGame (input, (windowW, windowH)) gameState =
       let missiles = map (getEnemyMissile (windowW, windowH)) lst
       in { gameState | enemyMissiles<-missiles++gameState.enemyMissiles }
     (NotStarted, UserAction _) -> { gameState | status<-Started }
-    (Started, UserAction end) -> 
+    (Ended, UserAction _)      -> { defaultGame | status<-Started }
+    (Started, UserAction end)  -> 
       let commandTop = { x=0, y=toFloat -windowH/2 + groundH + commandH - 10 }
       in { gameState | friendlyMissiles<-newMissile commandTop end Friendly::gameState.friendlyMissiles }
     (Started, Time delta) -> 
@@ -200,14 +202,14 @@ drawGame : (Int, Int) -> GameState -> Element
 drawGame (windowW, windowH) gameState =  
   let content = 
     case gameState.status of
-      NotStarted -> [ txt id "CLICK anywhere to START." ]
+      NotStarted -> [ txt id "TAP anywhere to START." ]
       Started    -> concat [ choose drawExplosions gameState.friendlyMissiles
                            , choose drawExplosions gameState.enemyMissiles
                            , choose drawTrail gameState.friendlyMissiles
                            , choose drawTrail gameState.enemyMissiles
                            , choose drawMissile gameState.friendlyMissiles
                            , choose drawMissile gameState.enemyMissiles ]
-      Ended      -> [ txt id "GAME OVER!" ]
+      Ended      -> [ txt id "  GAME OVER!\nTAP to RESTART." ]
   in collage windowW windowH content
 
 display : (Int, Int) -> GameState -> Element
@@ -221,8 +223,8 @@ txt f msg = msg |> toText |> Text.color white |> Text.monospace |> leftAligned |
 userInput : Signal Input
 userInput = 
   -- converts the (x, y) coordinates of a mouse click to the coordinate system used by the collage
-  let convert (w, h) (x, y) = (toFloat x - toFloat w/2, toFloat h/2 - toFloat y)
-  in convert<~Window.dimensions~Mouse.position
+  let convert (w, h) { x, y } = (toFloat x - toFloat w/2, toFloat h/2 - toFloat y)
+  in convert<~Window.dimensions~Touch.taps
      |> sampleOn Mouse.clicks
      |> lift (\(x, y) -> UserAction { x=x, y=y })              
             
