@@ -140,8 +140,8 @@ stepGame (input, (windowW, windowH)) gameState =
           newHp      = gameState.hp-enemyWins |> max 0
           newScore   = gameState.score+playerWins
           newStatus  = if newHp == 0 then Ended else Started
-      in { gameState | enemyMissiles<-filter (((/=) Exploded) . .status) enemyMissiles
-                     , friendlyMissiles<-filter (((/=) Exploded) . .status) friendlyMissiles
+      in { gameState | enemyMissiles<-filter (((/=) Exploded) << .status) enemyMissiles
+                     , friendlyMissiles<-filter (((/=) Exploded) << .status) friendlyMissiles
                      , hp<-newHp
                      , score<-newScore
                      , status<-newStatus}
@@ -202,14 +202,14 @@ drawGame : (Int, Int) -> GameState -> Element
 drawGame (windowW, windowH) gameState =  
   let content = 
     case gameState.status of
-      NotStarted -> [ txt id "TAP anywhere to START." ]
+      NotStarted -> [ txt identity "TAP anywhere to START." ]
       Started    -> concat [ choose drawExplosions gameState.friendlyMissiles
                            , choose drawExplosions gameState.enemyMissiles
                            , choose drawTrail gameState.friendlyMissiles
                            , choose drawTrail gameState.enemyMissiles
                            , choose drawMissile gameState.friendlyMissiles
                            , choose drawMissile gameState.enemyMissiles ]
-      Ended      -> [ txt id "  GAME OVER!\nTAP to RESTART." ]
+      Ended      -> [ txt identity "  GAME OVER!\nTAP to RESTART." ]
   in collage windowW windowH content
 
 display : (Int, Int) -> GameState -> Element
