@@ -1,4 +1,5 @@
 module MissileCommand where
+
 import Mouse
 import Random
 import Text
