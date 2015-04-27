@@ -1,13 +1,18 @@
 module MissileCommand where
-
 import Mouse
 import Random
 import Text
 import Touch
 import Window
+import List exposing (..)
+import Color exposing (..)
+import Graphics.Collage exposing (..)
+import Graphics.Element exposing (..)
+import Signal exposing ((~), (<~))
+import Time exposing (..)
 
-type Pos = { x:Float, y:Float }
-type Ms  = Float -- milliseconds
+type alias Pos = { x:Float, y:Float }
+type alias Ms  = Float -- milliseconds
 
 groundH      = 30   -- height of the ground
 commandH     = 40   -- height of the command
@@ -16,28 +21,29 @@ speed        = 50   -- speed of missiles per second in a straight line
 explosionSpd = 30   -- speed of the explosion per second
 blastRadius  = 50   -- max radius of an explosion
 
-type Velocity = { vx:Float, vy:Float }
-type Radius   = Float
-data GameStatus    = NotStarted | Started | Ended
-data MissileStatus = Flying Pos Pos Velocity -- the starting, end positions and velocity of flight
+type alias Velocity = { vx:Float, vy:Float }
+type alias Radius   = Float
+type GameStatus    = NotStarted | Started | Ended
+type MissileStatus = Flying Pos Pos Velocity -- the starting, end positions and velocity of flight
                    | Exploding Radius        -- the current radius of the blast
                    | Exploded
-data MissileKind   = Friendly | Enemy
-data ExplodeReason = ReachedTarget | CaughtInBlast | Collision
+type MissileKind   = Friendly | Enemy
+type ExplodeReason = ReachedTarget | CaughtInBlast | Collision
 
-type Missile       = { x:Float, y:Float, kind:MissileKind, status:MissileStatus }
-type GameState     = { friendlyMissiles:[Missile]
-                     , enemyMissiles:[Missile]
+type alias Missile = { x:Float, y:Float, kind:MissileKind, status:MissileStatus }
+type alias GameState = { friendlyMissiles: List Missile
+                     , enemyMissiles:List Missile
                      , score:Int
                      , hp:Int
-                     , status:GameStatus }
+                     , status:GameStatus
+                     , seed:Random.Seed }
 
-data Input = Time Ms                      -- time ticker
+type Input = Time Ms                      -- time ticker
            | UserAction Pos               -- user action on the canvas
-           | EnemyLaunch [(Float, Float)] -- enemy missile launches
+           | EnemyLaunch --List--(Float, Float) -- enemy missile launches
 
 defaultGame : GameState
-defaultGame = { friendlyMissiles=[], enemyMissiles=[], score=0, hp=10, status=NotStarted }
+defaultGame = { friendlyMissiles=[], enemyMissiles=[], score=0, hp=10, status=NotStarted, seed = Random.initialSeed 1 }
 
 filterJust : Maybe a -> Bool
 filterJust x =
@@ -50,7 +56,7 @@ extractJust x =
   case x of
     Just x' -> x'
 
-choose : (a -> Maybe b) -> [a] -> [b]
+choose : (a -> Maybe b) -> List a -> List b
 choose f lst = map f lst |> filter filterJust |> map extractJust
 
 calcVelocity : Pos -> Pos -> Velocity
@@ -62,7 +68,7 @@ calcVelocity start end =
   
 hitTest : Missile -> Missile -> Bool
 hitTest missile1 missile2 =
-  let isCollission x y centreX centreY radius =
+  let isCollision x y centreX centreY radius =
     let (minX, maxX, minY, maxY) = (centreX-radius, centreX+radius, centreY-radius, centreY+radius)
     in minX <= x
        && x <= maxX
@@ -70,11 +76,11 @@ hitTest missile1 missile2 =
        && y <= maxY
   in case (missile1.status, missile2.status) of
       -- when caught in another missile's blast then it's a 'hit'
-      (Flying _ _ _, Exploding radius) -> isCollission missile1.x missile1.y missile2.x missile2.y radius        
+      (Flying _ _ _, Exploding radius) -> isCollision missile1.x missile1.y missile2.x missile2.y radius        
       -- when different kinds of missiles collide they 'hit'
       (Flying _ _ _, Flying _ _ _) ->
         missile1.kind /= missile2.kind 
-        && isCollission missile1.x missile1.y missile2.x missile2.y (missileW/2)
+        && isCollision missile1.x missile1.y missile2.x missile2.y (missileW/2)
       (_, _) -> False
          
 newMissile : Pos -> Pos -> MissileKind -> Missile
@@ -82,7 +88,7 @@ newMissile start end kind =
   let velocity = calcVelocity start end
   in { x=start.x, y=start.y, kind=kind, status=Flying start end velocity }
 
-pairWise : [a] -> [(a, a)]
+pairWise : List a -> List (a, a)
 pairWise lst = 
   let loop lst acc = 
     case lst of
@@ -122,9 +128,13 @@ stepMissile delta { friendlyMissiles, enemyMissiles } missile =
 stepGame : (Input, (Int, Int)) -> GameState -> GameState
 stepGame (input, (windowW, windowH)) gameState =
   case (gameState.status, input) of
-    (Started, EnemyLaunch lst) -> 
-      let missiles = map (getEnemyMissile (windowW, windowH)) lst
-      in { gameState | enemyMissiles<-missiles++gameState.enemyMissiles }
+    (Started, EnemyLaunch) -> 
+      let
+        (cnt, seed') = Random.generate (Random.int 0 5) gameState.seed
+        (lst, _)     = Random.generate (Random.list cnt (Random.pair (Random.float 0 1) (Random.float 0 1))) gameState.seed
+        missiles = map (getEnemyMissile (windowW, windowH)) lst
+      in { gameState | enemyMissiles<-missiles++gameState.enemyMissiles
+                     , seed <- seed' }
     (NotStarted, UserAction _) -> { gameState | status<-Started }
     (Ended, UserAction _)      -> { defaultGame | status<-Started }
     (Started, UserAction end)  -> 
@@ -195,8 +205,8 @@ drawGameInfo : (Int, Int) -> GameState -> Element
 drawGameInfo (windowW, windowH) { hp, score }  =
   let (w, h) = (toFloat windowW, toFloat windowH)
   in collage windowW windowH
-     <| [ txt (move (-w/3, h/2-10)) ("Score "++show score)
-          , txt (move (w/3, h/2-10)) ("HP "++show hp)]
+     <| [ txt (move (-w/3, h/2-10)) ("Score "++ toString score)
+          , txt (move (w/3, h/2-10)) ("HP "++ toString hp)]
             
 drawGame : (Int, Int) -> GameState -> Element
 drawGame (windowW, windowH) gameState =  
@@ -218,31 +228,30 @@ display dim gameState = layers [ drawBackground dim
                                , drawGameInfo dim gameState]
 
 txt : (Form -> Form) -> String -> Form
-txt f msg = msg |> toText |> Text.color white |> Text.monospace |> leftAligned |> toForm |> f
+txt f msg = msg |> Text.fromString |> Text.color white |> Text.monospace |> leftAligned |> toForm |> f
 
 userInput : Signal Input
 userInput = 
   -- converts the (x, y) coordinates of a mouse click to the coordinate system used by the collage
   let convert (w, h) { x, y } = (toFloat x - toFloat w/2, toFloat h/2 - toFloat y)
   in convert<~Window.dimensions~Touch.taps
-     |> sampleOn Mouse.clicks
-     |> lift (\(x, y) -> UserAction { x=x, y=y })              
-            
+     |> Signal.sampleOn Mouse.clicks
+     |> Signal.map (\(x, y) -> UserAction { x=x, y=y })              
+         
 enemyLaunch : Signal Input
-enemyLaunch = Random.range 0 5 (every <| 2*second) 
-              |> lift ((*) 2)     -- every missile needs a pair of coordinates
-              |> Random.floatList -- turn each signal into n floats [0..1]
-              |> lift pairWise
-              |> lift EnemyLaunch
+enemyLaunch = Signal.map (\_ -> EnemyLaunch) (every <| 2*second)
 
 delta = fps 60
 timer : Signal Input
-timer = sampleOn delta <| (\n -> Time <| n / 1000)<~delta
+timer = Signal.sampleOn delta <| (\n -> Time <| n / 1000)<~delta
 
 input : Signal Input
-input = merge timer userInput |> merge enemyLaunch
+input = Signal.mergeMany 
+          [ timer
+          , userInput
+          , enemyLaunch]
 
 gameState : Signal GameState
-gameState = foldp stepGame defaultGame ((,)<~input~Window.dimensions)
+gameState = Signal.foldp stepGame defaultGame ((,)<~input~Window.dimensions)
 
 main = display<~Window.dimensions~gameState
