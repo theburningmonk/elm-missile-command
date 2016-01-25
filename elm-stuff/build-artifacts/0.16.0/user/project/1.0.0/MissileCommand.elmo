@@ -1,0 +1,542 @@
+Elm.MissileCommand = Elm.MissileCommand || {};
+Elm.MissileCommand.make = function (_elm) {
+   "use strict";
+   _elm.MissileCommand = _elm.MissileCommand || {};
+   if (_elm.MissileCommand.values)
+   return _elm.MissileCommand.values;
+   var _U = Elm.Native.Utils.make(_elm),
+   $Basics = Elm.Basics.make(_elm),
+   $Color = Elm.Color.make(_elm),
+   $Debug = Elm.Debug.make(_elm),
+   $Graphics$Collage = Elm.Graphics.Collage.make(_elm),
+   $Graphics$Element = Elm.Graphics.Element.make(_elm),
+   $List = Elm.List.make(_elm),
+   $Maybe = Elm.Maybe.make(_elm),
+   $Mouse = Elm.Mouse.make(_elm),
+   $Random = Elm.Random.make(_elm),
+   $Result = Elm.Result.make(_elm),
+   $Signal = Elm.Signal.make(_elm),
+   $Text = Elm.Text.make(_elm),
+   $Time = Elm.Time.make(_elm),
+   $Touch = Elm.Touch.make(_elm),
+   $Window = Elm.Window.make(_elm);
+   var _op = {};
+   var delta = $Time.fps(60);
+   var txt = F2(function (f,msg) {
+      return f($Graphics$Collage.toForm($Graphics$Element.leftAligned($Text.monospace(A2($Text.color,
+      $Color.white,
+      $Text.fromString(msg))))));
+   });
+   var drawGameInfo = F2(function (_p1,_p0) {
+      var _p2 = _p1;
+      var _p6 = _p2._0;
+      var _p5 = _p2._1;
+      var _p3 = _p0;
+      var _p4 = {ctor: "_Tuple2"
+                ,_0: $Basics.toFloat(_p6)
+                ,_1: $Basics.toFloat(_p5)};
+      var w = _p4._0;
+      var h = _p4._1;
+      return A3($Graphics$Collage.collage,
+      _p6,
+      _p5,
+      _U.list([A2(txt,
+              $Graphics$Collage.move({ctor: "_Tuple2"
+                                     ,_0: (0 - w) / 3
+                                     ,_1: h / 2 - 10}),
+              A2($Basics._op["++"],"Score ",$Basics.toString(_p3.score)))
+              ,A2(txt,
+              $Graphics$Collage.move({ctor: "_Tuple2"
+                                     ,_0: w / 3
+                                     ,_1: h / 2 - 10}),
+              A2($Basics._op["++"],"HP ",$Basics.toString(_p3.hp)))]));
+   });
+   var drawExplosions = function (_p7) {
+      var _p8 = _p7;
+      var _p9 = _p8.status;
+      if (_p9.ctor === "Exploding") {
+            return $Maybe.Just(A2($Graphics$Collage.move,
+            {ctor: "_Tuple2",_0: _p8.x,_1: _p8.y},
+            A2($Graphics$Collage.alpha,
+            0.5,
+            A2($Graphics$Collage.filled,
+            A3($Color.rgb,150,170,150),
+            $Graphics$Collage.circle(_p9._0)))));
+         } else {
+            return $Maybe.Nothing;
+         }
+   };
+   var pairWise = function (lst) {
+      var loop = F2(function (lst,acc) {
+         loop: while (true) {
+            var _p10 = lst;
+            if (_p10.ctor === "::") {
+                  if (_p10._1.ctor === "::") {
+                        var _v5 = _p10._1._1,
+                        _v6 = A2($List._op["::"],
+                        {ctor: "_Tuple2",_0: _p10._0,_1: _p10._1._0},
+                        acc);
+                        lst = _v5;
+                        acc = _v6;
+                        continue loop;
+                     } else {
+                        return _U.crashCase("MissileCommand",
+                        {start: {line: 95,column: 5},end: {line: 98,column: 43}},
+                        _p10)("pair-wise failed");
+                     }
+               } else {
+                  return acc;
+               }
+         }
+      });
+      return A2(loop,lst,_U.list([]));
+   };
+   var extractJust = function (x) {
+      var _p12 = x;
+      if (_p12.ctor === "Just") {
+            return _p12._0;
+         } else {
+            return _U.crashCase("MissileCommand",
+            {start: {line: 56,column: 3},end: {line: 58,column: 34}},
+            _p12)("boom");
+         }
+   };
+   var filterJust = function (x) {
+      var _p14 = x;
+      if (_p14.ctor === "Just") {
+            return true;
+         } else {
+            return false;
+         }
+   };
+   var choose = F2(function (f,lst) {
+      return A2($List.map,
+      extractJust,
+      A2($List.filter,filterJust,A2($List.map,f,lst)));
+   });
+   var EnemyLaunch = {ctor: "EnemyLaunch"};
+   var enemyLaunch = A2($Signal.map,
+   function (_p15) {
+      return EnemyLaunch;
+   },
+   $Time.every(2 * $Time.second));
+   var UserAction = function (a) {
+      return {ctor: "UserAction",_0: a};
+   };
+   var userInput = function () {
+      var convert = F2(function (_p17,_p16) {
+         var _p18 = _p17;
+         var _p19 = _p16;
+         return {ctor: "_Tuple2"
+                ,_0: $Basics.toFloat(_p19.x) - $Basics.toFloat(_p18._0) / 2
+                ,_1: $Basics.toFloat(_p18._1) / 2 - $Basics.toFloat(_p19.y)};
+      });
+      return A2($Signal.map,
+      function (_p20) {
+         var _p21 = _p20;
+         return UserAction({x: _p21._0,y: _p21._1});
+      },
+      A2($Signal.sampleOn,
+      $Mouse.clicks,
+      A3($Signal.map2,convert,$Window.dimensions,$Touch.taps)));
+   }();
+   var Time = function (a) {    return {ctor: "Time",_0: a};};
+   var timer = A2($Signal.sampleOn,
+   delta,
+   A2($Signal.map,
+   function (n) {
+      return Time(n / 1000);
+   },
+   delta));
+   var input = $Signal.mergeMany(_U.list([timer
+                                         ,userInput
+                                         ,enemyLaunch]));
+   var GameState = F6(function (a,b,c,d,e,f) {
+      return {friendlyMissiles: a
+             ,enemyMissiles: b
+             ,score: c
+             ,hp: d
+             ,status: e
+             ,seed: f};
+   });
+   var Missile = F4(function (a,b,c,d) {
+      return {x: a,y: b,kind: c,status: d};
+   });
+   var Collision = {ctor: "Collision"};
+   var CaughtInBlast = {ctor: "CaughtInBlast"};
+   var ReachedTarget = {ctor: "ReachedTarget"};
+   var Enemy = {ctor: "Enemy"};
+   var drawTrail = function (_p22) {
+      var _p23 = _p22;
+      var _p24 = _p23.status;
+      if (_p24.ctor === "Flying") {
+            var _p26 = _p24._0;
+            var _p25 = _U.eq(_p23.kind,Enemy) ? {ctor: "_Tuple3"
+                                                ,_0: $Color.red
+                                                ,_1: 0.5
+                                                ,_2: 5} : {ctor: "_Tuple3",_0: $Color.blue,_1: 0.2,_2: 1};
+            var colour = _p25._0;
+            var alphaVal = _p25._1;
+            var lineW = _p25._2;
+            var lineStyle = $Graphics$Collage.solid(colour);
+            return $Maybe.Just(A2($Graphics$Collage.alpha,
+            alphaVal,
+            A2($Graphics$Collage.traced,
+            _U.update(lineStyle,{width: lineW}),
+            $Graphics$Collage.path(_U.list([{ctor: "_Tuple2"
+                                            ,_0: _p23.x
+                                            ,_1: _p23.y}
+                                           ,{ctor: "_Tuple2",_0: _p26.x,_1: _p26.y}])))));
+         } else {
+            return $Maybe.Nothing;
+         }
+   };
+   var Friendly = {ctor: "Friendly"};
+   var Exploded = {ctor: "Exploded"};
+   var Exploding = function (a) {
+      return {ctor: "Exploding",_0: a};
+   };
+   var Flying = F3(function (a,b,c) {
+      return {ctor: "Flying",_0: a,_1: b,_2: c};
+   });
+   var Ended = {ctor: "Ended"};
+   var Started = {ctor: "Started"};
+   var NotStarted = {ctor: "NotStarted"};
+   var defaultGame = {friendlyMissiles: _U.list([])
+                     ,enemyMissiles: _U.list([])
+                     ,score: 0
+                     ,hp: 10
+                     ,status: NotStarted
+                     ,seed: $Random.initialSeed(1)};
+   var Velocity = F2(function (a,b) {    return {vx: a,vy: b};});
+   var blastRadius = 50;
+   var explosionSpd = 30;
+   var speed = 50;
+   var calcVelocity = F2(function (start,end) {
+      var distV = end.y - start.y;
+      var distH = end.x - start.x;
+      var angle = A2($Basics.atan2,distV,distH);
+      return {vx: speed * $Basics.cos(angle)
+             ,vy: speed * $Basics.sin(angle)};
+   });
+   var newMissile = F3(function (start,end,kind) {
+      var velocity = A2(calcVelocity,start,end);
+      return {x: start.x
+             ,y: start.y
+             ,kind: kind
+             ,status: A3(Flying,start,end,velocity)};
+   });
+   var missileW = 10;
+   var hitTest = F2(function (missile1,missile2) {
+      var isCollision = F5(function (x,y,centreX,centreY,radius) {
+         var _p27 = {ctor: "_Tuple4"
+                    ,_0: centreX - radius
+                    ,_1: centreX + radius
+                    ,_2: centreY - radius
+                    ,_3: centreY + radius};
+         var minX = _p27._0;
+         var maxX = _p27._1;
+         var minY = _p27._2;
+         var maxY = _p27._3;
+         return _U.cmp(minX,x) < 1 && (_U.cmp(x,
+         maxX) < 1 && (_U.cmp(minY,y) < 1 && _U.cmp(y,maxY) < 1));
+      });
+      var _p28 = {ctor: "_Tuple2"
+                 ,_0: missile1.status
+                 ,_1: missile2.status};
+      _v14_2: do {
+         if (_p28._0.ctor === "Flying") {
+               switch (_p28._1.ctor)
+               {case "Exploding": return A5(isCollision,
+                    missile1.x,
+                    missile1.y,
+                    missile2.x,
+                    missile2.y,
+                    _p28._1._0);
+                  case "Flying": return !_U.eq(missile1.kind,
+                    missile2.kind) && A5(isCollision,
+                    missile1.x,
+                    missile1.y,
+                    missile2.x,
+                    missile2.y,
+                    missileW / 2);
+                  default: break _v14_2;}
+            } else {
+               break _v14_2;
+            }
+      } while (false);
+      return false;
+   });
+   var stepMissile = F3(function (delta,_p29,missile) {
+      var _p30 = _p29;
+      var _p31 = missile.status;
+      switch (_p31.ctor)
+      {case "Flying": var _p33 = _p31._2.vy;
+           var _p32 = _p31._1;
+           var inBlastRadius = A2($List.any,
+           hitTest(missile),
+           A2($Basics._op["++"],_p30.friendlyMissiles,_p30.enemyMissiles));
+           var newY = missile.y + _p33 * delta;
+           var reachedEnd = _U.cmp(_p33,0) > 0 ? _U.cmp(newY,
+           _p32.y) > 0 : _U.cmp(newY,_p32.y) < 0;
+           var newX = missile.x + _p31._2.vx * delta;
+           return reachedEnd || inBlastRadius ? {ctor: "_Tuple2"
+                                                ,_0: _U.update(missile,{x: newX,y: newY,status: Exploding(0)})
+                                                ,_1: $Maybe.Just(reachedEnd ? ReachedTarget : CaughtInBlast)} : {ctor: "_Tuple2"
+                                                                                                                ,_0: _U.update(missile,{x: newX,y: newY})
+                                                                                                                ,_1: $Maybe.Nothing};
+         case "Exploding":
+         var newRadius = _p31._0 + explosionSpd * delta;
+           var disappear = _U.cmp(newRadius,blastRadius) > 0;
+           return disappear ? {ctor: "_Tuple2"
+                              ,_0: _U.update(missile,{status: Exploded})
+                              ,_1: $Maybe.Nothing} : {ctor: "_Tuple2"
+                                                     ,_0: _U.update(missile,{status: Exploding(newRadius)})
+                                                     ,_1: $Maybe.Nothing};
+         default: return _U.crashCase("MissileCommand",
+           {start: {line: 111,column: 3},end: {line: 129,column: 41}},
+           _p31)("unexpected status");}
+   });
+   var drawMissile = function (_p35) {
+      var _p36 = _p35;
+      var _p37 = _p36.status;
+      if (_p37.ctor === "Flying") {
+            var color = _U.eq(_p36.kind,
+            Enemy) ? $Color.red : $Color.blue;
+            return $Maybe.Just(A2($Graphics$Collage.move,
+            {ctor: "_Tuple2",_0: _p36.x,_1: _p36.y},
+            A2($Graphics$Collage.filled,
+            color,
+            A2($Graphics$Collage.ngon,4,missileW / 2))));
+         } else {
+            return $Maybe.Nothing;
+         }
+   };
+   var drawGame = F2(function (_p38,gameState) {
+      var _p39 = _p38;
+      var content = function () {
+         var _p40 = gameState.status;
+         switch (_p40.ctor)
+         {case "NotStarted": return _U.list([A2(txt,
+              $Basics.identity,
+              "TAP anywhere to START.")]);
+            case "Started": return $List.concat(_U.list([A2(choose,
+                                                        drawExplosions,
+                                                        gameState.friendlyMissiles)
+                                                        ,A2(choose,drawExplosions,gameState.enemyMissiles)
+                                                        ,A2(choose,drawTrail,gameState.friendlyMissiles)
+                                                        ,A2(choose,drawTrail,gameState.enemyMissiles)
+                                                        ,A2(choose,drawMissile,gameState.friendlyMissiles)
+                                                        ,A2(choose,drawMissile,gameState.enemyMissiles)]));
+            default: return _U.list([A2(txt,
+              $Basics.identity,
+              "  GAME OVER!\nTAP to RESTART.")]);}
+      }();
+      return A3($Graphics$Collage.collage,_p39._0,_p39._1,content);
+   });
+   var commandH = 40;
+   var groundH = 30;
+   var getEnemyMissile = F2(function (_p42,_p41) {
+      var _p43 = _p42;
+      var _p44 = _p41;
+      var _p45 = {ctor: "_Tuple2"
+                 ,_0: $Basics.toFloat(_p43._0)
+                 ,_1: $Basics.toFloat(_p43._1)};
+      var w = _p45._0;
+      var h = _p45._1;
+      var getX = function (x) {    return w * x - w / 2;};
+      var startPos = {x: getX(_p44._0),y: h / 2};
+      var endPos = {x: getX(_p44._1),y: groundH - h / 2};
+      return A3(newMissile,startPos,endPos,Enemy);
+   });
+   var stepGame = F2(function (_p46,gameState) {
+      var _p47 = _p46;
+      var _p56 = _p47._1._1;
+      var _p48 = {ctor: "_Tuple2",_0: gameState.status,_1: _p47._0};
+      _v24_5: do {
+         switch (_p48._0.ctor)
+         {case "NotStarted": if (_p48._1.ctor === "UserAction") {
+                    return _U.update(gameState,{status: Started});
+                 } else {
+                    break _v24_5;
+                 }
+            case "Ended": if (_p48._1.ctor === "UserAction") {
+                    return _U.update(defaultGame,{status: Started});
+                 } else {
+                    break _v24_5;
+                 }
+            default: switch (_p48._1.ctor)
+              {case "EnemyLaunch": var _p49 = A2($Random.generate,
+                   A2($Random.$int,0,5),
+                   gameState.seed);
+                   var cnt = _p49._0;
+                   var seed$ = _p49._1;
+                   var _p50 = A2($Random.generate,
+                   A2($Random.list,
+                   cnt,
+                   A2($Random.pair,A2($Random.$float,0,1),A2($Random.$float,0,1))),
+                   gameState.seed);
+                   var lst = _p50._0;
+                   var missiles = A2($List.map,
+                   getEnemyMissile({ctor: "_Tuple2",_0: _p47._1._0,_1: _p56}),
+                   lst);
+                   return _U.update(gameState,
+                   {enemyMissiles: A2($Basics._op["++"],
+                   missiles,
+                   gameState.enemyMissiles)
+                   ,seed: seed$});
+                 case "UserAction": var commandTop = {x: 0
+                                                     ,y: $Basics.toFloat(0 - _p56) / 2 + groundH + commandH - 10};
+                   return _U.update(gameState,
+                   {friendlyMissiles: A2($List._op["::"],
+                   A3(newMissile,commandTop,_p48._1._0,Friendly),
+                   gameState.friendlyMissiles)});
+                 default: var _p55 = _p48._1._0;
+                   var _p51 = $List.unzip(A2($List.map,
+                   A2(stepMissile,_p55,gameState),
+                   gameState.friendlyMissiles));
+                   var friendlyMissiles = _p51._0;
+                   var _p52 = $List.unzip(A2($List.map,
+                   A2(stepMissile,_p55,gameState),
+                   gameState.enemyMissiles));
+                   var enemyMissiles = _p52._0;
+                   var explodeReasons = _p52._1;
+                   var enemyWins = $List.length(A2($List.filter,
+                   F2(function (x,y) {
+                      return _U.eq(x,y);
+                   })($Maybe.Just(ReachedTarget)),
+                   explodeReasons));
+                   var newHp = A2($Basics.max,0,gameState.hp - enemyWins);
+                   var newStatus = _U.eq(newHp,0) ? Ended : Started;
+                   var playerWins = $List.length(A2($List.filter,
+                   F2(function (x,y) {
+                      return _U.eq(x,y);
+                   })($Maybe.Just(CaughtInBlast)),
+                   explodeReasons));
+                   var newScore = gameState.score + playerWins;
+                   return _U.update(gameState,
+                   {enemyMissiles: A2($List.filter,
+                   function (_p53) {
+                      return A2(F2(function (x,y) {    return !_U.eq(x,y);}),
+                      Exploded,
+                      function (_) {
+                         return _.status;
+                      }(_p53));
+                   },
+                   enemyMissiles)
+                   ,friendlyMissiles: A2($List.filter,
+                   function (_p54) {
+                      return A2(F2(function (x,y) {    return !_U.eq(x,y);}),
+                      Exploded,
+                      function (_) {
+                         return _.status;
+                      }(_p54));
+                   },
+                   friendlyMissiles)
+                   ,hp: newHp
+                   ,score: newScore
+                   ,status: newStatus});}}
+      } while (false);
+      return gameState;
+   });
+   var gameState = A3($Signal.foldp,
+   stepGame,
+   defaultGame,
+   A3($Signal.map2,
+   F2(function (v0,v1) {
+      return {ctor: "_Tuple2",_0: v0,_1: v1};
+   }),
+   input,
+   $Window.dimensions));
+   var drawBackground = function (_p57) {
+      var _p58 = _p57;
+      var _p61 = _p58._0;
+      var _p60 = _p58._1;
+      var _p59 = {ctor: "_Tuple2"
+                 ,_0: $Basics.toFloat(_p61)
+                 ,_1: $Basics.toFloat(_p60)};
+      var w = _p59._0;
+      var h = _p59._1;
+      var groundY = (0 - h) / 2 + groundH / 2;
+      var centreY = (0 - h) / 2 + commandH;
+      return A3($Graphics$Collage.collage,
+      _p61,
+      _p60,
+      _U.list([A2($Graphics$Collage.filled,
+              A3($Color.rgb,0,0,0),
+              A2($Graphics$Collage.rect,w,h))
+              ,A2($Graphics$Collage.move,
+              {ctor: "_Tuple2",_0: 0,_1: groundY},
+              A2($Graphics$Collage.filled,
+              A3($Color.rgb,255,255,40),
+              A2($Graphics$Collage.rect,w,groundH)))
+              ,A2($Graphics$Collage.move,
+              {ctor: "_Tuple2",_0: 0,_1: centreY},
+              A2($Graphics$Collage.rotate,
+              $Basics.degrees(90),
+              A2($Graphics$Collage.filled,
+              A3($Color.rgb,255,255,40),
+              A2($Graphics$Collage.ngon,3,commandH / 2))))]));
+   };
+   var display = F2(function (dim,gameState) {
+      return $Graphics$Element.layers(_U.list([drawBackground(dim)
+                                              ,A2(drawGame,dim,gameState)
+                                              ,A2(drawGameInfo,dim,gameState)]));
+   });
+   var main = A3($Signal.map2,
+   display,
+   $Window.dimensions,
+   gameState);
+   var Pos = F2(function (a,b) {    return {x: a,y: b};});
+   return _elm.MissileCommand.values = {_op: _op
+                                       ,Pos: Pos
+                                       ,groundH: groundH
+                                       ,commandH: commandH
+                                       ,missileW: missileW
+                                       ,speed: speed
+                                       ,explosionSpd: explosionSpd
+                                       ,blastRadius: blastRadius
+                                       ,Velocity: Velocity
+                                       ,NotStarted: NotStarted
+                                       ,Started: Started
+                                       ,Ended: Ended
+                                       ,Flying: Flying
+                                       ,Exploding: Exploding
+                                       ,Exploded: Exploded
+                                       ,Friendly: Friendly
+                                       ,Enemy: Enemy
+                                       ,ReachedTarget: ReachedTarget
+                                       ,CaughtInBlast: CaughtInBlast
+                                       ,Collision: Collision
+                                       ,Missile: Missile
+                                       ,GameState: GameState
+                                       ,Time: Time
+                                       ,UserAction: UserAction
+                                       ,EnemyLaunch: EnemyLaunch
+                                       ,defaultGame: defaultGame
+                                       ,filterJust: filterJust
+                                       ,extractJust: extractJust
+                                       ,choose: choose
+                                       ,calcVelocity: calcVelocity
+                                       ,hitTest: hitTest
+                                       ,newMissile: newMissile
+                                       ,pairWise: pairWise
+                                       ,getEnemyMissile: getEnemyMissile
+                                       ,stepMissile: stepMissile
+                                       ,stepGame: stepGame
+                                       ,drawMissile: drawMissile
+                                       ,drawTrail: drawTrail
+                                       ,drawExplosions: drawExplosions
+                                       ,drawBackground: drawBackground
+                                       ,drawGameInfo: drawGameInfo
+                                       ,drawGame: drawGame
+                                       ,display: display
+                                       ,txt: txt
+                                       ,userInput: userInput
+                                       ,enemyLaunch: enemyLaunch
+                                       ,delta: delta
+                                       ,timer: timer
+                                       ,input: input
+                                       ,gameState: gameState
+                                       ,main: main};
+};
