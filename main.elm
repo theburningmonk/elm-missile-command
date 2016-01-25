@@ -9,7 +9,6 @@ import List exposing (..)
 import Color exposing (..)
 import Graphics.Collage exposing (..)
 import Graphics.Element exposing (..)
-import Signal exposing ((~), (<~))
 import Time exposing (..)
 
 type alias Pos = { x:Float, y:Float }
@@ -56,6 +55,7 @@ extractJust : Maybe a -> a
 extractJust x =
   case x of
     Just x' -> x'
+    _       -> Debug.crash "boom"
 
 choose : (a -> Maybe b) -> List a -> List b
 choose f lst = map f lst |> filter filterJust |> map extractJust
@@ -95,6 +95,7 @@ pairWise lst =
     case lst of
       a::b::tl -> loop tl ((a, b)::acc)
       [] -> acc
+      _  -> Debug.crash "pair-wise failed"
   in loop lst []
   
 getEnemyMissile : (Int, Int) -> (Float, Float) -> Missile
@@ -115,16 +116,17 @@ stepMissile delta { friendlyMissiles, enemyMissiles } missile =
           inBlastRadius = any (hitTest missile) <| friendlyMissiles++enemyMissiles
           reachedEnd    = if vy > 0 then newY > end.y else newY < end.y
       in if reachedEnd || inBlastRadius
-         then ({ missile | x<-newX, y<-newY, status<-Exploding 0 }
+         then ({ missile | x=newX, y=newY, status=Exploding 0 }
                , Just <| if reachedEnd then ReachedTarget else CaughtInBlast )
-         else ({ missile | x<-newX, y<-newY }, Nothing)
+         else ({ missile | x=newX, y=newY }, Nothing)
     -- for an exploding missile, expand the radius of the explosion
     Exploding radius -> 
       let newRadius = radius + explosionSpd*delta
           disappear = newRadius > blastRadius
       in if disappear 
-         then ({ missile | status<-Exploded }, Nothing)
-         else ({ missile | status<-Exploding newRadius }, Nothing)
+         then ({ missile | status=Exploded }, Nothing)
+         else ({ missile | status=Exploding newRadius }, Nothing)
+    _ -> Debug.crash "unexpected status"
 
 stepGame : (Input, (Int, Int)) -> GameState -> GameState
 stepGame (input, (windowW, windowH)) gameState =
@@ -134,13 +136,13 @@ stepGame (input, (windowW, windowH)) gameState =
         (cnt, seed') = Random.generate (Random.int 0 5) gameState.seed
         (lst, _)     = Random.generate (Random.list cnt (Random.pair (Random.float 0 1) (Random.float 0 1))) gameState.seed
         missiles = map (getEnemyMissile (windowW, windowH)) lst
-      in { gameState | enemyMissiles<-missiles++gameState.enemyMissiles
-                     , seed <- seed' }
-    (NotStarted, UserAction _) -> { gameState | status<-Started }
-    (Ended, UserAction _)      -> { defaultGame | status<-Started }
+      in { gameState | enemyMissiles=missiles++gameState.enemyMissiles
+                     , seed = seed' }
+    (NotStarted, UserAction _) -> { gameState | status=Started }
+    (Ended, UserAction _)      -> { defaultGame | status=Started }
     (Started, UserAction end)  -> 
       let commandTop = { x=0, y=toFloat -windowH/2 + groundH + commandH - 10 }
-      in { gameState | friendlyMissiles<-newMissile commandTop end Friendly::gameState.friendlyMissiles }
+      in { gameState | friendlyMissiles=newMissile commandTop end Friendly::gameState.friendlyMissiles }
     (Started, Time delta) -> 
       let (enemyMissiles, explodeReasons) = unzip <| map (stepMissile delta gameState) gameState.enemyMissiles
           (friendlyMissiles, _)           = unzip <| map (stepMissile delta gameState) gameState.friendlyMissiles
@@ -151,11 +153,11 @@ stepGame (input, (windowW, windowH)) gameState =
           newHp      = gameState.hp-enemyWins |> max 0
           newScore   = gameState.score+playerWins
           newStatus  = if newHp == 0 then Ended else Started
-      in { gameState | enemyMissiles<-filter (((/=) Exploded) << .status) enemyMissiles
-                     , friendlyMissiles<-filter (((/=) Exploded) << .status) friendlyMissiles
-                     , hp<-newHp
-                     , score<-newScore
-                     , status<-newStatus}
+      in { gameState | enemyMissiles=filter (((/=) Exploded) << .status) enemyMissiles
+                     , friendlyMissiles=filter (((/=) Exploded) << .status) friendlyMissiles
+                     , hp=newHp
+                     , score=newScore
+                     , status=newStatus}
     (_, _) -> gameState
 
 drawMissile : Missile -> Maybe Form
@@ -173,7 +175,7 @@ drawTrail { x, y, kind, status } =
       let (colour, alphaVal, lineW) = if kind==Enemy then (red, 0.5, 5) else (blue, 0.2, 1)
           lineStyle = solid colour
       in path [ (x, y), (start.x, start.y) ] 
-         |> traced ({ lineStyle | width<-lineW })
+         |> traced ({ lineStyle | width=lineW })
          |> alpha alphaVal
          |> Just
     _ -> Nothing
@@ -235,7 +237,7 @@ userInput : Signal Input
 userInput = 
   -- converts the (x, y) coordinates of a mouse click to the coordinate system used by the collage
   let convert (w, h) { x, y } = (toFloat x - toFloat w/2, toFloat h/2 - toFloat y)
-  in convert<~Window.dimensions~Touch.taps
+  in Signal.map2 convert Window.dimensions Touch.taps
      |> Signal.sampleOn Mouse.clicks
      |> Signal.map (\(x, y) -> UserAction { x=x, y=y })              
          
@@ -244,7 +246,7 @@ enemyLaunch = Signal.map (\_ -> EnemyLaunch) (every <| 2*second)
 
 delta = fps 60
 timer : Signal Input
-timer = Signal.sampleOn delta <| (\n -> Time <| n / 1000)<~delta
+timer = Signal.sampleOn delta <| Signal.map (\n -> Time <| n / 1000) delta
 
 input : Signal Input
 input = Signal.mergeMany 
@@ -253,6 +255,8 @@ input = Signal.mergeMany
           , enemyLaunch]
 
 gameState : Signal GameState
-gameState = Signal.foldp stepGame defaultGame ((,)<~input~Window.dimensions)
+gameState = 
+  Signal.map2 (,) input Window.dimensions
+  |> Signal.foldp stepGame defaultGame
 
-main = display<~Window.dimensions~gameState
+main = Signal.map2 display Window.dimensions gameState
